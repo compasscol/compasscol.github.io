@@ -1,0 +1,211 @@
+---
+title: "GS_rrBLUP"
+author: "Paulo Izquierdo"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+### Load packages
+
+```{r}
+remove(list = ls())
+
+library(rrBLUP)
+library(dplyr)
+library(qqman)
+library(ggplot2)
+library(reshape)
+library(grDevices)
+library(RColorBrewer)
+```
+
+
+Genome Wide Association
+
+```{r}
+
+M <- matrix(rep(0,500*1100),1100,500) # matrix of genotypes dimensions
+
+for (i in 1:500) { # fill the genotype matrix
+M[,i] <- ifelse(runif(1100)<0.5,-1,1)
+}
+
+
+geno <- data.frame(SNP=1:1100, # create the data frame with chromosomes
+                   Chromosome=rep(1:11,each=100),
+                   Position=rep(1:100, times=11),
+                   M,check.names=FALSE)
+
+geno[1090:1100,1:5]
+
+QTL <- 55 * (1:20) #pick QTL
+length(QTL)
+u <- rep(0,1100) 
+u[QTL] <- c(20,	40,	60,	80,	100, #marker effects
+            120,	140,	160,	180, 
+            200,	220,	240,	260, 
+            280,	300,	320, 340,	
+            360, 380,400)
+g <- as.vector(crossprod(M,u)) # get the cross product between Markers and marker effects
+h2 <- 0.6 # heritability
+y <- g + rnorm(500,mean=4000,sd=sqrt((1-h2)/h2*var(g))) # phenotype in a random distribution on 500 samples  with  the mean and sd desired
+
+hist(y, col = "cornflowerblue", breaks = 30, 
+     main="Yield", xlab = "kg/ha")
+
+pheno <- data.frame(line=1:500,y=y) # get the data frame input ofr the GWA 
+
+```
+
+
+### Genomic Selection Random & Fixed variables
+
+```{r warning=F, warning=F}
+
+phenoGS <- scale(pheno[,2]) # sacale data (subtract the mean and divide by sd). This could help to increase the prediction accuracy
+
+dim(M) # M is the markers Matrix
+dim(phenoGS) # number of rows must be equal with M
+
+markers <- t(M) # Transpose of M
+dim(markers) # 500 Inv and 1100 markers
+dim(phenoGS)
+
+QTL # QTL positions
+u[QTL] # QTL effects
+
+# Objects with QTL positions in the genome to use them as fixed variables
+indexQTL20 = c(55, 110, 165, 220, 275, 330, 385, 440, 495, 550, 605, 660, 715, 770, 825 ,880, 935, 990, 1045, 1100)
+
+# Exclude fixed variables for the data set
+markersNoQTL20 = markers[,-indexQTL20]
+
+# Now we need to create the matrix with the fixed variables for the data set
+bQTL20 = as.matrix(markers[,indexQTL20])
+head(bQTL20)
+
+cycles = 10 # number of cycles 
+accuracy = matrix(nrow = cycles, ncol=2) # empty matrix to store results
+
+for(r in 1:cycles) 
+  { # open loop to run GP model
+train = as.matrix(sample(1:500, 250)) # select 250 lines to train the model
+test = setdiff(1:500, train) #select remainder samples to validate the model
+
+yTRN  = phenoGS[train,] # select 250 lines to train the model
+
+# extract samples in the training population for each data set of markers
+xTRN = markers[train,]
+x20TRN = markersNoQTL20[train,]
+
+# extract samples in the training population for each data set of fixed variables
+bTRN20 = bQTL20[train, ,drop=F]
+
+# extract samples in the testing population for each data set of fixed variables
+
+bTST20= bQTL20[test, ,drop=F]
+
+
+yTST  = phenoGS[test,] # select remainder samples to validate the model in the testing population
+
+# extract samples in the testing population for each data set of markers
+xTST = markers[test,]
+x20TST = markersNoQTL20[test,]
+
+yNA = phenoGS # phenotype 
+yNA[test] <- NA # data in testing pop will be "NA"
+
+# rrBLUP package
+fmGS0 = mixed.solve(yTRN, # only random effects
+                    Z=xTRN)
+
+fmGS20 = mixed.solve(yTRN, # QTL fixed  + random (20 QTL)
+                    X=bTRN20, 
+                    Z=x20TRN)
+
+yHat0 = xTST %*% fmGS0$u  # Predicted genetic value
+
+# Predicted value with fixed variables 
+yHat20 = (bTST20 %*% fmGS20$beta) + (x20TST %*% fmGS20$u)
+
+# store the correlation of each cycle
+accuracy[r,1] = cor(yHat0, yTST, use = "complete" ) 
+accuracy[r,2] = cor(yHat20, yTST, use = "complete" )
+}
+
+apply(accuracy,2,mean) # mean accuracy of cycles
+
+predGS0 <- data.frame(yTST, yHat0) # create the data frame input for GP plot
+
+p_GS0 <- ggplot(predGS0, 
+               aes(x=yHat0, y=yTST)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) 
+
+p_GS0
+
+
+colnames(accuracy) = c("0","20")
+
+boxplot(accuracy, col=c(2:3), 
+        ylab= "Accuracy",
+        xlab= "Fixed QTL", cex.axis=0.8)
+
+```
+
+
+
+GS only with QTLs
+
+```{r }
+
+QTL # QTL regions
+markers_qtl = markers[,QTL] # select QTL markers
+dim(markers_qtl)
+
+traits=1
+cycles=10
+accuracy2= matrix(nrow = cycles, ncol=traits)
+
+for(r in 1:cycles) {
+train = as.matrix(sample(1:500, 350))
+test = setdiff(1:500, train)
+
+pheno_train_gq  = phenoGS[train,]
+marker_train_gq = markers_qtl[train,]
+
+pheno_valid_gq  = phenoGS[test,]
+marker_valid_gq = markers_qtl[test,]
+
+yield_answer_gq = mixed.solve(pheno_train_gq, 
+                           Z=marker_train_gq,
+                           K=NULL,
+                           SE= F,
+                           return.Hinv = F)
+
+YLD_gq = yield_answer_gq$u # marker effects
+e_q = as.matrix(YLD_gq)
+
+pred_yield_valid_gq = marker_valid_gq %*% e_q
+pred_yield_gq = as.vector(pred_yield_valid_gq) + as.vector(yield_answer_gq$beta)
+accuracy2[r,1] = cor(pred_yield_gq, 
+                    pheno_valid_gq, 
+                   use = "complete" )
+}
+
+mean(accuracy2)
+
+pred2 <- data.frame(pheno_valid_gq, pred_yield_gq)
+
+p_GS3 <- ggplot(pred2, aes(x=pheno_valid_gq,
+                          y=pred_yield_gq)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) 
+
+cor(pheno_valid_gq, pred_yield_gq)
+p_GS3
+
+```
+
+
