@@ -1,0 +1,216 @@
+---
+title: "Differential expression analysis by edgeR"
+---
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+
+
+## Loading edgeR
+
+```{r include=FALSE}
+library(edgeR)
+```
+
+## Setting working directory
+
+```{r "setup",include=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/mirellaflores/Downloads/DE-workshop")
+#setwd("/Users/mirellaflores/Downloads/DE-workshop")
+```
+
+## Importing data into R
+
+```{r}
+tom_counts <- read.csv("gene_count_matrix.csv", row.name=1, header = TRUE)
+```
+
+## Grouping
+
+```{r echo=FALSE}
+group <- c(1,1,2,2)
+```
+
+## Putting data into a DGEList object
+
+```{r}
+y <- DGEList(counts = tom_counts, group = group)
+```
+
+### Checking the DGEList
+
+```{r}
+y
+```
+
+### Checking the DGEList
+
+```{r}
+head(y$counts)
+
+dim(y$counts)
+```
+
+### Checking sample info
+
+```{r}
+y$samples
+```
+
+## Saving a copy of raw data before data processing
+
+```{r}
+y.rawdata <- y
+```
+
+## Filtering raw data (keep genes with at least 1 count/cpm, in at least 2 samples)
+
+### Question: Is 1 count/cpm suitable for our data set?
+
+```{r}
+keep <- rowSums(cpm(y)>1) >= 2
+```
+
+### Checking filtering step
+
+```{r}
+table(keep)
+```
+
+### Modifying data
+
+```{r}
+y <- y[keep, , keep.lib.sizes = FALSE]
+```
+
+### Checking data after filtering step
+
+```{r}
+dim(y)
+head(y$counts)
+```
+
+```{r}
+y$samples
+```
+
+## Normalization
+
+```{r}
+y <- calcNormFactors(y)
+y$samples
+```
+
+## Data exploration
+### MDS plot
+plotMDS: Multidimensional scaling plot of distances between digital gene expression profiles.
+It calculates distances between samples based on log2 fold changes
+
+```{r}
+plotMDS(y, col=as.numeric(y$sample$group))
+```
+
+### MD plot
+Mean-Difference Plot of Count Data 
+It is a plot of log fold changes (differences) versus average log values (means).
+ 
+```{r}
+plotMD(cpm(y,log=TRUE), column=1)
+abline(h=0, col="red")
+
+plotMD(cpm(y,log=TRUE), column=2)
+abline(h=0, col="red")
+
+plotMD(cpm(y,log=TRUE), column=3)
+abline(h=0, col="red")
+
+plotMD(cpm(y,log=TRUE), column=4)
+abline(h=0, col="red")
+```
+
+
+
+## Pairwise comparison (classic edgeR)
+
+### Estimating dispersions
+
+```{r}
+y<-estimateDisp(y)
+```
+
+### checking y
+
+```{r}
+names(y)
+```
+
+### BCV plot
+Dispersion means biological coeffient of variation
+
+```{r}
+plotBCV(y)
+```
+
+## Testing for DE genes
+
+```{r}
+de<-exactTest(y)
+topTags(de, n=10)
+```
+
+### Selecting differentially expressed genes at a FDR of 5%
+FDR: False Discovery Rate 
+
+```{r}
+de_05 <- decideTestsDGE(de)
+de_05
+```
+
+```{r}
+summary(de_05)
+```
+
+
+### Generating a dataframe containing DE genes at a FDR of 5%
+
+```{r}
+isDE <-as.logical(de_05)
+
+de_05name<-rownames(y)[isDE]
+
+de_05.table<-de[de_05name, ]
+
+de_05.table
+
+```
+
+### Exporting data
+
+```{r}
+write.csv(de_05.table$table, file = "de_05_v1")
+write.csv(de$table, file = "de_v1")
+```
+
+### Plotting log-fold changes against average log-cpm, highlighting the DE genes
+
+```{r}
+plotSmear(de, de.tags = de_05name)
+abline (h = c(-1, 1), col = "blue")
+```
+
+
+## Exercise (keeping genes with at least 20 cpm during filtering step)
+
+```{r}
+y20 <- y.rawdata
+
+
+
+
+
+
+```
+
